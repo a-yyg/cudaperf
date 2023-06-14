@@ -1,4 +1,7 @@
 # Compilation
+Compile with CMake the usual way.
 ```bash
-nvcc -o cudaperf cudaperf.cu
+mkdir build && cd build
+cmake ..
+make
 ```
