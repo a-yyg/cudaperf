@@ -1,6 +1,7 @@
 #include "timelogger.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
 
@@ -34,7 +35,7 @@ void TimeLogger::stopRecording() {
   addTime(last_name_, duration(end_time - start_time));
 }
 
-void TimeLogger::addTime(std::string name, double time) {
+void TimeLogger::addTime(std::string name, long time) {
   if (!active_)
     return;
 
@@ -131,7 +132,7 @@ void TimeLogger::printHistogram() {
   std::cout << "--- Histogram ---" << std::endl;
   for (auto &time : times) {
     std::cout << std::setw(25) << std::left << time.first << ": "
-              << std::setw(15) << std::left << time.second * 1000 << " ms"
+              << std::setw(15) << std::left << time.second << " us"
               << " (" << time.second / total * 100 << "%)" << std::endl;
   }
   std::cout << "Total: " << total * 1000 << " ms" << std::endl;
@@ -153,23 +154,23 @@ void TimeLogger::print() {
   std::cout << "--- Average ---" << std::endl;
   for (auto &time : times_) {
     std::cout << std::setw(25) << std::left << time.first << ": "
-              << std::setw(15) << std::left << getAverageTime(time.first) * 1000
-              << " ms" << std::endl;
+              << std::setw(15) << std::left << getAverageTime(time.first)
+              << " us" << std::endl;
   }
 
   std::cout << "--- Ranges ---" << std::endl;
   for (auto &time : times_) {
     std::cout << std::setw(25) << std::left << time.first << ": "
-              << std::setw(15) << std::left << getMinTime(time.first) * 1000
-              << " ms - " << std::setw(15) << std::left
-              << getMaxTime(time.first) * 1000 << " ms" << std::endl;
+              << std::setw(15) << std::left << getMinTime(time.first)
+              << " us - " << std::setw(15) << std::left
+              << getMaxTime(time.first) << " us" << std::endl;
   }
 
   std::cout << "--- Std Dev ---" << std::endl;
   for (auto &time : times_) {
     std::cout << std::setw(25) << std::left << time.first << ": "
-              << std::setw(15) << std::left << getStdDev(time.first) * 1000
-              << " ms" << std::endl;
+              << std::setw(15) << std::left << getStdDev(time.first)
+              << " us" << std::endl;
   }
 }
 

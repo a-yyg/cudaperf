@@ -7,9 +7,11 @@
 using namespace std::chrono_literals;
 
 typedef std::chrono::high_resolution_clock::time_point TimeVar;
+/* #define duration(a)                                                            \ */
+/*   ((double)std::chrono::duration_cast<std::chrono::microseconds>(a).count() /  \ */
+/*    1e6) */
 #define duration(a)                                                            \
-  ((double)std::chrono::duration_cast<std::chrono::microseconds>(a).count() /  \
-   1e6)
+  (std::chrono::duration_cast<std::chrono::microseconds>(a).count())
 #define TimeNow() std::chrono::high_resolution_clock::now()
 
 namespace YuriPerf {
@@ -30,7 +32,7 @@ public:
   void stopRecording();
 
   // Add a time to the list of times for a given name
-  void addTime(std::string name, double time);
+  void addTime(std::string name, long time);
 
   // Get the average time for a given name
   double getAverageTime(std::string name);
@@ -62,7 +64,7 @@ public:
   inline void setActive(bool active) { active_ = active; }
 
 private:
-  std::unordered_map<std::string, std::vector<double>> times_;
+  std::unordered_map<std::string, std::vector<long>> times_;
 
   std::unordered_map<std::string, TimeVar> start_times_;
 
