@@ -1,6 +1,8 @@
 #include <chrono>
 #include <cstdio>
 
+#include "common/timelogger.hpp"
+
 #define CUDA_CHECK(stmt)                                                       \
   do {                                                                         \
     cudaError_t result = (stmt);                                               \
@@ -11,14 +13,11 @@
     }                                                                          \
   } while (0)
 
-typedef std::chrono::high_resolution_clock::time_point TimeVar;
-#define duration(a)                                                            \
-  (std::chrono::duration_cast<std::chrono::microseconds>(a).count())
-#define timeNow() std::chrono::high_resolution_clock::now()
-
-#define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
-
 #define BENCHMARK 1
+
+namespace YuriPerf {
+
+TimeLogger g_logger;
 
 /* Class to ease memory management on the GPU */
 template <typename T> class CudaMemory {
@@ -143,16 +142,16 @@ public:
     delete[] m_B;
   }
 
-  void exec() {
+  void exec(int iterations = 1) {
 #if (BENCHMARK == 1)
-    TimeVar start, end;
-    start = timeNow();
+    for (int i = 0; i < iterations; i++) {
+    g_logger.startRecording("h2d");
 #endif
     // Copy the input matrix and scalars to the GPU
     m_A.copyToDevice(host_A, m_N * m_N);
 #if (BENCHMARK == 1)
-    end = timeNow();
-    printf("Copy input to GPU: %ld us\n", duration(end - start));
+    g_logger.stopRecording();
+    // printf("Copy input to GPU: %ld us\n", duration(end - start));
 #endif
 
     int numStreams = m_numScalars + 1;
@@ -163,7 +162,7 @@ public:
     dim3 dimGrid((m_N + 31) / 32, (m_N + 31) / 32);
 
 #if (BENCHMARK == 1)
-    start = timeNow();
+    g_logger.startRecording("mul_kernel");
 #endif
     // Multily the input matrix by each scalar
     for (int i = 0; i < m_numScalars; i++) {
@@ -173,9 +172,9 @@ public:
 
     cudaDeviceSynchronize(); // Make sure all streams are done
 #if (BENCHMARK == 1)
-    end = timeNow();
-    printf("Multiply by scalars: %ld us\n", duration(end - start));
-    start = timeNow();
+    g_logger.stopRecording();
+    // printf("Multiply by scalars: %ld us\n", duration(end - start));
+    g_logger.startRecording("add_kernel");
 #endif
 
     // Add all intermediate matrices together two by two
@@ -192,17 +191,19 @@ public:
     cudaDeviceSynchronize(); // Make sure all streams are done
 
 #if (BENCHMARK == 1)
-    end = timeNow();
-    printf("Add intermediate matrices: %ld us\n", duration(end - start));
-    start = timeNow();
+    g_logger.stopRecording();
+    // printf("Add intermediate matrices: %ld us\n", duration(end - start));
+    g_logger.startRecording("d2h");
 #endif
 
     // Copy the output matrix back to the host
     m_C[m_numScalars - 2].copyToHost(host_C, m_N * m_N);
 
 #if (BENCHMARK == 1)
-    end = timeNow();
-    printf("Copy output to CPU: %ld us\n", duration(end - start));
+    g_logger.stopRecording();
+    // printf("Copy output to CPU: %ld us\n", duration(end - start));
+    delete[] streams;
+    }
 #endif
   }
 
@@ -227,14 +228,25 @@ private:
   CudaMemory<float> *m_C;
 };
 
+} // namespace YuriPerf
+
 int main(int argc, char *argv[]) {
   int N = argc > 1 ? atoi(argv[1]) : 8;
   int numScalars = argc > 2 ? atoi(argv[2]) : 2;
+  int iterations = argc > 3 ? atoi(argv[3]) : 1;
+
+#if (BENCHMARK == 1)
+  YuriPerf::g_logger.setActive(true);
+#endif
 
   // Create the graph
-  GraphA graph(N, numScalars);
-  graph.exec();
+  YuriPerf::GraphA graph(N, numScalars);
+  graph.exec(iterations);
   // graph.print();
+
+#if (BENCHMARK == 1)
+  YuriPerf::g_logger.print();
+#endif
 
   return 0;
 }
