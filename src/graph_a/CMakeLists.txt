@@ -11,6 +11,3 @@ target_include_directories(graph_a
 	${CUDA_INCLUDE_DIRS}
 	${CMAKE_CURRENT_SOURCE_DIR}/..
 	)
-
-install(TARGETS graph_a
-	DESTINATION bin)

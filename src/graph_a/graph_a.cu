@@ -102,7 +102,7 @@ public:
       // Multily the input matrix by each scalar
       for (int i = 0; i < m_numScalars; i++) {
         MatMul<<<dimGrid, dimBlock, 0, streams[i].get()>>>(
-            m_A.get(), m_B[i].get(), m_N, scalars[i]);
+            m_B[i].get(), m_A.get(), m_N, scalars[i]);
       }
 
       cudaDeviceSynchronize(); // Make sure all streams are done
@@ -115,13 +115,13 @@ public:
       // Add all intermediate matrices together two by two
       // First B1 + B2 = C1
       // Doing this synchronously, as we need the result of this operation
-      MatAdd<<<dimGrid, dimBlock>>>(m_B[0].get(), m_B[1].get(), m_C[0].get(),
+      MatAdd<<<dimGrid, dimBlock>>>(m_C[0].get(), m_B[0].get(), m_B[1].get(),
                                     m_N);
 
       // Then C1 + B3 = C2, and so on
       for (int i = 1; i < m_numScalars - 1; i++) {
-        MatAdd<<<dimGrid, dimBlock>>>(m_C[i - 1].get(), m_B[i + 1].get(),
-                                      m_C[i].get(), m_N);
+        MatAdd<<<dimGrid, dimBlock>>>(m_C[i].get(), m_B[i + 1].get(),
+                                      m_C[i - 1].get(), m_N);
       }
       cudaDeviceSynchronize(); // Make sure all streams are done
 
