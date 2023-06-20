@@ -7,6 +7,11 @@ foreach(libName ${PLUGINS})
     list(APPEND PLUGIN_LIBS "${${libName}_lib}")
 endforeach()
 
+if (NOT PLUGIN_LIBS)
+	message(WARNING "No TensorRT plugins found. Not building DNN samples.")
+	return()
+endif()
+
 find_package(OpenCV REQUIRED)
 
 add_executable(make_engine
