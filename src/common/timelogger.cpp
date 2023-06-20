@@ -1,9 +1,9 @@
 #include "timelogger.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <fstream>
 
 #include <cmath>
 
@@ -149,7 +149,7 @@ void TimeLogger::print() {
   }
 
   // Print histogram, then avg, ranges and std dev
-  printHistogram();
+  /* printHistogram(); */
 
   std::cout << "--- Average ---" << std::endl;
   for (auto &time : times_) {
@@ -169,9 +169,30 @@ void TimeLogger::print() {
   std::cout << "--- Std Dev ---" << std::endl;
   for (auto &time : times_) {
     std::cout << std::setw(25) << std::left << time.first << ": "
-              << std::setw(15) << std::left << getStdDev(time.first)
-              << " us" << std::endl;
+              << std::setw(15) << std::left << getStdDev(time.first) << " us"
+              << std::endl;
   }
+}
+
+void TimeLogger::writeCSV(std::string filename) {
+  if (!active_)
+    return;
+
+  std::ofstream file(filename);
+  // Write header with each name
+  for (auto &time : times_) {
+    file << time.first << ",";
+  }
+  file << std::endl;
+
+  // Write each time
+  for (size_t i = 0; i < times_.begin()->second.size(); i++) {
+    for (auto &time : times_) {
+      file << time.second[i] << ",";
+    }
+    file << std::endl;
+  }
+  file.close();
 }
 
 } // namespace YuriPerf

@@ -20,6 +20,8 @@ YuriPerf::TimeLogger g_logger;
 #define INPUT_NAME "data"
 #define OUTPUT_NAME "resnetv24_dense0_fwd"
 
+#define BENCHMARK 1
+
 #define CHECK_CUDA(call) { \
     cudaError_t status = call; \
     if (status != cudaSuccess) { \
@@ -125,7 +127,11 @@ int main(int argc, char* argv[]) {
     };
 
     int iterations = argc == 5 ? atoi(argv[4]) : 1;
+#if (BENCHMARK == 1)
     g_logger.setActive(true);
+#else
+    g_logger.setActive(false);
+#endif
 
     for (uint i = 0; i < image_names.size(); ++i) {
         img = cv::imread(image_folder + "/" + image_names[i]);
@@ -145,32 +151,43 @@ int main(int argc, char* argv[]) {
         double t_proc = 0.0;
         double t_out = 0.0;
         for (int j = 0; j < iterations; ++j) {
+#if (BENCHMARK == 1)
             g_logger.startRecording("h2d");
+#endif
 
             CHECK_CUDA(cudaMemcpy(d_input, img.data, 3 * 224 * 224 * sizeof(uchar), cudaMemcpyHostToDevice));
             cudaDeviceSynchronize();
 
+#if (BENCHMARK == 1)
             g_logger.stopRecording();
             g_logger.startRecording("infer");
+#endif
 
             // run inference
             context->execute(1, buffers);
             cudaDeviceSynchronize();
 
+#if (BENCHMARK == 1)
             g_logger.stopRecording();
             g_logger.startRecording("d2h");
+#endif
 
             // postprocess
             CHECK_CUDA(cudaMemcpy(prob.data(), d_output, 1000 * sizeof(uchar), cudaMemcpyDeviceToHost));
             cudaDeviceSynchronize();
 
+#if (BENCHMARK == 1)
             g_logger.stopRecording();
+#endif
         }
 
         // std::cout << "input time: " << t_in / iterations << std::endl;
         // std::cout << "process time: " << t_proc / iterations << std::endl;
         // std::cout << "output time: " << t_out / iterations << std::endl;
+#if (BENCHMARK == 1)
         g_logger.print();
+        g_logger.writeCSV("resnet50.csv");
+#endif
 
         for (int j = 0; j < 10; ++j) {
             std::cout << labels[j] << ": " << prob[j] << std::endl;

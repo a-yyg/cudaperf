@@ -169,6 +169,7 @@ int main(int argc, char *argv[]) {
   int N = argc > 1 ? atoi(argv[1]) : 8;
   int numScalars = argc > 2 ? atoi(argv[2]) : 2;
   int iterations = argc > 3 ? atoi(argv[3]) : 1;
+  std::string filename = argc > 4 ? argv[4] : "graphA.csv";
 
 #if (BENCHMARK == 1)
   YuriPerf::g_logger.setActive(true);
@@ -181,6 +182,7 @@ int main(int argc, char *argv[]) {
 
 #if (BENCHMARK == 1)
   YuriPerf::g_logger.print();
+  YuriPerf::g_logger.writeCSV(filename);
 #endif
 
   return 0;

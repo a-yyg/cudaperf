@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -59,6 +60,9 @@ public:
 
   // Print detailed information, including average, min, max, and std dev
   void print();
+
+  // Write a CSV file with the times
+  void writeCSV(std::string filename);
 
   // Set whether or not to record times
   inline void setActive(bool active) { active_ = active; }
