@@ -46,23 +46,23 @@ class Logger : public ILogger {
         }
     }
 } gLogger;
-
-// destroy TensorRT objects if something goes wrong
-struct TRTDestroy
-{
-    template< class T >
-    void operator()(T* obj) const
-    {
-        if (obj)
-        {
-            obj->destroy();
-        }
-    }
-};
  
-template< class T >
-using TRTUniquePtr = std::unique_ptr< T, TRTDestroy >;
+template<class T>
+using TRTUniquePtr = std::unique_ptr<T>;
 
+void hwc_to_chw(cv::InputArray src, cv::OutputArray dst) {
+  const int src_h = src.rows();
+  const int src_w = src.cols();
+  const int src_c = src.channels();
+
+  cv::Mat hw_c = src.getMat().reshape(1, src_h * src_w);
+
+  const std::array<int,3> dims = {src_c, src_h, src_w};                         
+  dst.create(3, &dims[0], CV_MAKETYPE(src.depth(), 1));                         
+  cv::Mat dst_1d = dst.getMat().reshape(1, {src_c, src_h, src_w});              
+
+  cv::transpose(hw_c, dst_1d);                                                  
+}    
 
 int main(int argc, char* argv[]) {
     if (argc < 4) {
@@ -115,12 +115,14 @@ int main(int argc, char* argv[]) {
 
     // use opencv to read image
     cv::Mat img;
-    std::vector<uchar> prob(1000);
+
+    typedef float output_type;
+    std::vector<output_type> prob(1000);
 
     uchar* d_input{nullptr};
-    uchar* d_output{nullptr};
+    output_type* d_output{nullptr};
     CHECK_CUDA(cudaMalloc((void**)&d_input, 3 * 224 * 224 * sizeof(uchar)));
-    CHECK_CUDA(cudaMalloc((void**)&d_output, 1000 * sizeof(uchar)));
+    CHECK_CUDA(cudaMalloc((void**)&d_output, 1000 * sizeof(output_type)));
     void* const buffers[] = {
         reinterpret_cast<void*>(d_input),
         reinterpret_cast<void*>(d_output)
@@ -134,6 +136,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     for (uint i = 0; i < image_names.size(); ++i) {
+        std::cout << "Processing image " << i << ": " << image_names[i] << std::endl;
         img = cv::imread(image_folder + "/" + image_names[i]);
         if (img.empty()) {
             std::cerr << "Failed to read image: " << image_names[i] << std::endl;
@@ -146,6 +149,8 @@ int main(int argc, char* argv[]) {
         // cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
         // img.convertTo(img, CV_32FC3);
         // img = (img - 127.5) / 127.5;
+        // change HWC to CHW
+        hwc_to_chw(img, img);
 
         double t_in = 0.0;
         double t_proc = 0.0;
@@ -173,7 +178,7 @@ int main(int argc, char* argv[]) {
 #endif
 
             // postprocess
-            CHECK_CUDA(cudaMemcpy(prob.data(), d_output, 1000 * sizeof(uchar), cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(prob.data(), d_output, 1000 * sizeof(output_type), cudaMemcpyDeviceToHost));
             cudaDeviceSynchronize();
 
 #if (BENCHMARK == 1)
@@ -194,16 +199,16 @@ int main(int argc, char* argv[]) {
         }
 
         // calculate softmax
-        std::transform(prob.begin(), prob.end(), prob.begin(), [](float val) { return std::exp(val); });
-        auto sum = std::accumulate(prob.begin(), prob.end(), 0.0f);
+        // std::transform(prob.begin(), prob.end(), prob.begin(), [](float val) { return std::exp(val); });
+        // auto sum = std::accumulate(prob.begin(), prob.end(), 0.0f);
                 
-        std::transform(prob.begin(), prob.end(), prob.begin(), [sum](float val) { return val / sum; });
+        // std::transform(prob.begin(), prob.end(), prob.begin(), [sum](float val) { return val / sum; });
 
         // find max prob
         auto max = std::max_element(prob.begin(), prob.end());
         auto index = std::distance(prob.begin(), max);
 
-        std::cout << "image: " << image_names[i] << ", label: " << labels[index] << ", prob: " << *max << std::endl;
+        std::cout << "image: " << image_names[i] << ", label: " << labels[index] << ", prob: " << (int)*max << std::endl;
     }
 
     CHECK_CUDA(cudaFree(d_input));
