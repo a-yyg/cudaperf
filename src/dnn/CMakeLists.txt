@@ -16,18 +16,23 @@ find_package(OpenCV REQUIRED)
 
 add_executable(make_engine
 	make_engine.cpp
+	/usr/src/tensorrt/samples/common/logger.cpp
 	${COMMON_FILES})
 
 target_link_libraries(make_engine
 	${CUDA_LIBRARIES}
 	${CUDNN_LIBRARIES}
-	${PLUGIN_LIBS})
+	${PLUGIN_LIBS}
+	${OpenCV_LIBS}
+	)
 
 target_include_directories(make_engine
 	PUBLIC
 	${CUDA_INCLUDE_DIRS}
 	${CUDNN_INCLUDE_DIRS}
 	${CMAKE_CURRENT_SOURCE_DIR}/..
+	/usr/src/tensorrt/samples/common
+	${OpenCV_INCLUDE_DIRS}
 	)
 
 add_executable(run_engine
