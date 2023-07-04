@@ -3,6 +3,7 @@
 #include <chrono>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using namespace std::chrono_literals;
@@ -33,7 +34,7 @@ public:
   void stopRecording();
 
   // Add a time to the list of times for a given name
-  void addTime(std::string name, long time);
+  void addTime(std::string name, long duration, std::string time = "");
 
   // Get the average time for a given name
   double getAverageTime(std::string name);
@@ -68,7 +69,7 @@ public:
   inline void setActive(bool active) { active_ = active; }
 
 private:
-  std::unordered_map<std::string, std::vector<long>> times_;
+  std::unordered_map<std::string, std::vector<std::pair<std::string, long>>> times_;
 
   std::unordered_map<std::string, TimeVar> start_times_;
 

@@ -23,7 +23,15 @@ void TimeLogger::stopRecording(std::string name) {
 
   auto start_time = start_times_[name];
   auto end_time = TimeNow();
-  addTime(name, duration(end_time - start_time));
+
+  // get current time in format HH:MM:SS
+  time_t now = time(0);
+  tm *ltm = localtime(&now);
+  std::string time = std::to_string(ltm->tm_hour) + ":" +
+                     std::to_string(ltm->tm_min) + ":" +
+                     std::to_string(ltm->tm_sec);
+
+  addTime(name, duration(end_time - start_time), time);
 }
 
 void TimeLogger::stopRecording() {
@@ -32,14 +40,22 @@ void TimeLogger::stopRecording() {
 
   auto start_time = start_times_[last_name_];
   auto end_time = TimeNow();
-  addTime(last_name_, duration(end_time - start_time));
+  time_t now = time(0);
+
+  // get current time in format HH:MM:SS
+  tm *ltm = localtime(&now);
+  std::string time = std::to_string(ltm->tm_hour) + ":" +
+                     std::to_string(ltm->tm_min) + ":" +
+                     std::to_string(ltm->tm_sec);
+
+  addTime(last_name_, duration(end_time - start_time), time);
 }
 
-void TimeLogger::addTime(std::string name, long time) {
+void TimeLogger::addTime(std::string name, long duration, std::string time) {
   if (!active_)
     return;
 
-  times_[name].push_back(time);
+  times_[name].push_back(std::make_pair(time, duration));
 }
 
 double TimeLogger::getAverageTime(std::string name) {
@@ -48,7 +64,7 @@ double TimeLogger::getAverageTime(std::string name) {
 
   double sum = 0;
   for (auto &time : times_[name]) {
-    sum += time;
+    sum += time.second;
   }
   return sum / times_[name].size();
 }
@@ -57,10 +73,10 @@ double TimeLogger::getMinTime(std::string name) {
   if (!active_)
     return 0;
 
-  double min = times_[name][0];
+  double min = times_[name][0].second;
   for (auto &time : times_[name]) {
-    if (time < min)
-      min = time;
+    if (time.second < min)
+      min = time.second;
   }
   return min;
 }
@@ -69,10 +85,10 @@ double TimeLogger::getMaxTime(std::string name) {
   if (!active_)
     return 0;
 
-  double max = times_[name][0];
+  double max = times_[name][0].second;
   for (auto &time : times_[name]) {
-    if (time > max)
-      max = time;
+    if (time.second > max)
+      max = time.second;
   }
   return max;
 }
@@ -84,7 +100,7 @@ double TimeLogger::getStdDev(std::string name) {
   double avg = getAverageTime(name);
   double sum = 0;
   for (auto &time : times_[name]) {
-    sum += (time - avg) * (time - avg);
+    sum += (time.second - avg) * (time.second - avg);
   }
   return std::sqrt(sum / times_[name].size());
 }
@@ -180,16 +196,29 @@ void TimeLogger::writeCSV(std::string filename) {
 
   std::ofstream file(filename);
   // Write header with each name
+  file << "time,";
+  file << "iteration,";
   for (auto &time : times_) {
     file << time.first << ",";
   }
+  
+  file << "total";
+
   file << std::endl;
 
   // Write each time
   for (size_t i = 0; i < times_.begin()->second.size(); i++) {
+    long total = 0;
+
+    file << times_.begin()->second[i].first << ",";
+    file << i << ",";
     for (auto &time : times_) {
-      file << time.second[i] << ",";
+      file << time.second[i].second << ",";
+      total += time.second[i].second;
     }
+
+    file << total;
+
     file << std::endl;
   }
   file.close();
