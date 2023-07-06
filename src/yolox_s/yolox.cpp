@@ -12,6 +12,8 @@
 
 #include "common/timelogger.hpp"
 
+YuriPerf::TimeLogger g_logger;
+
 #define CHECK(status) \
     do\
     {\
@@ -26,6 +28,8 @@
 #define DEVICE 0  // GPU id
 #define NMS_THRESH 0.45
 #define BBOX_CONF_THRESH 0.3
+
+#define SAVE_RESULTS 0
 
 using namespace nvinfer1;
 
@@ -235,7 +239,7 @@ static void decode_outputs(float* prob, std::vector<Object>& objects, float scal
     std::vector<GridAndStride> grid_strides;
     generate_grids_and_stride(strides, grid_strides);
     generate_yolox_proposals(grid_strides, prob,  BBOX_CONF_THRESH, proposals);
-    std::cout << "num of boxes before nms: " << proposals.size() << std::endl;
+    // std::cout << "num of boxes before nms: " << proposals.size() << std::endl;
 
     qsort_descent_inplace(proposals);
 
@@ -245,7 +249,7 @@ static void decode_outputs(float* prob, std::vector<Object>& objects, float scal
 
     int count = picked.size();
 
-    std::cout << "num of boxes: " << count << std::endl;
+    // std::cout << "num of boxes: " << count << std::endl;
 
     objects.resize(count);
     for (int i = 0; i < count; i++)
@@ -269,7 +273,7 @@ static void decode_outputs(float* prob, std::vector<Object>& objects, float scal
         objects[i].rect.width = x1 - x0;
         objects[i].rect.height = y1 - y0;
 
-        std::cout << objects[i].label << ", " << objects[i].prob << ", " << objects[i].rect.x << ", " << objects[i].rect.y << ", " << objects[i].rect.width << ", " << objects[i].rect.height << std::endl;
+        // std::cout << objects[i].label << ", " << objects[i].prob << ", " << objects[i].rect.x << ", " << objects[i].rect.y << ", " << objects[i].rect.width << ", " << objects[i].rect.height << std::endl;
     }
 
     // std::cout << "FINISHED" << std::endl;
@@ -367,8 +371,8 @@ const float color_list[80][3] =
     {0.50, 0.5, 0}
 };
 
-static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f,
-                            std::string alt_f)
+static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string out_txt_path)
+                            
 {
     static const char* class_names[] = {
         "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -384,12 +388,17 @@ static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objec
 
     cv::Mat image = bgr.clone();
 
+#if SAVE_RESULTS == 1
+    std::ofstream f_stream;
+    f_stream.open(out_txt_path, std::ios::out);
+#endif
+
     for (size_t i = 0; i < objects.size(); i++)
     {
         const Object& obj = objects[i];
 
-        fprintf(stderr, "%d = %.5f at %.2f %.2f %.2f x %.2f\n", obj.label, obj.prob,
-                obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height);
+        // fprintf(stderr, "%d = %.5f at %.2f %.2f %.2f x %.2f\n", obj.label, obj.prob,
+        //         obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height);
 
         cv::Scalar color = cv::Scalar(color_list[obj.label][0], color_list[obj.label][1], color_list[obj.label][2]);
         float c_mean = cv::mean(color)[0];
@@ -423,57 +432,62 @@ static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objec
 
         cv::putText(image, text, cv::Point(x, y + label_size.height),
                     cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
+
+
+#if SAVE_RESULTS == 1
+        // format is: label confidence left top right bottom
+        f_stream << class_names[obj.label] << " " << obj.prob << " " << obj.rect.x << " " << obj.rect.y << " " << obj.rect.width << " " << obj.rect.height << "\n";
+#endif
     }
 
-    // parse alt_f line by line to get alternative object positiosn
-    // format is: label x y w h prob
-    std::ifstream alt_f_stream(alt_f);
-    std::string line;
+#if SAVE_RESULTS == 1
+    f_stream.close();
+#endif
 
-    while (std::getline(alt_f_stream, line)) {
-        std::istringstream iss(line);
-        std::string label;
-        float x, y, w, h, prob;
-        if (!(iss >> label >> x >> y >> w >> h >> prob)) {
-            break;
-        } // error
+    // while (std::getline(alt_f_stream, line)) {
+    //     std::istringstream iss(line);
+    //     std::string label;
+    //     float x, y, w, h, prob;
+    //     if (!(iss >> label >> x >> y >> w >> h >> prob)) {
+    //         break;
+    //     } // error
 
-        cv::Scalar color = cv::Scalar(color_list[std::stoi(label)][0], color_list[std::stoi(label)][1], color_list[std::stoi(label)][2]);
-        float c_mean = cv::mean(color)[0];
-        cv::Scalar txt_color;
-        if (c_mean > 0.5){
-            txt_color = cv::Scalar(0, 0, 0);
-        }else{
-            txt_color = cv::Scalar(255, 255, 255);
-        }
+    //     cv::Scalar color = cv::Scalar(color_list[std::stoi(label)][0], color_list[std::stoi(label)][1], color_list[std::stoi(label)][2]);
+    //     float c_mean = cv::mean(color)[0];
+    //     cv::Scalar txt_color;
+    //     if (c_mean > 0.5){
+    //         txt_color = cv::Scalar(0, 0, 0);
+    //     }else{
+    //         txt_color = cv::Scalar(255, 255, 255);
+    //     }
 
-        cv::Rect rect = cv::Rect(x, y, w, h);
-        cv::rectangle(image, rect, color * 255, 2);
+    //     cv::Rect rect = cv::Rect(x, y, w, h);
+    //     cv::rectangle(image, rect, color * 255, 2);
 
-        char text[256];
-        sprintf(text, "%s %.1f%% (Blaize)", class_names[std::stoi(label)], prob * 100);
+    //     char text[256];
+    //     sprintf(text, "%s %.1f%% (Blaize)", class_names[std::stoi(label)], prob * 100);
 
-        int baseLine = 0;
-        cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.4, 1, &baseLine);
+    //     int baseLine = 0;
+    //     cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.4, 1, &baseLine);
 
-        cv::Scalar txt_bk_color = color * 0.7 * 255;
-        // rgb to bgr
-        cv::Scalar txt_bk_color_bgr = cv::Scalar(txt_bk_color[2], txt_bk_color[1], txt_bk_color[0]); 
+    //     cv::Scalar txt_bk_color = color * 0.7 * 255;
+    //     // rgb to bgr
+    //     cv::Scalar txt_bk_color_bgr = cv::Scalar(txt_bk_color[2], txt_bk_color[1], txt_bk_color[0]); 
 
-        x = rect.x;
-        y = rect.y + 1;
-        //int y = rect.y - label_size.height - baseLine;
-        if (y > image.rows)
-            y = image.rows;
-        //if (x + label_size.width > image.cols)
-            //x = image.cols - label_size.width;
+    //     x = rect.x;
+    //     y = rect.y + 1;
+    //     //int y = rect.y - label_size.height - baseLine;
+    //     if (y > image.rows)
+    //         y = image.rows;
+    //     //if (x + label_size.width > image.cols)
+    //         //x = image.cols - label_size.width;
 
-        cv::rectangle(image, cv::Rect(cv::Point(x, y + rect.height), cv::Size(label_size.width, label_size.height + baseLine)),
-                      txt_bk_color, -1);
+    //     cv::rectangle(image, cv::Rect(cv::Point(x, y + rect.height), cv::Size(label_size.width, label_size.height + baseLine)),
+    //                   txt_bk_color, -1);
 
-        cv::putText(image, text, cv::Point(x, y + rect.height + label_size.height),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
-    }
+    //     cv::putText(image, text, cv::Point(x, y + rect.height + label_size.height),
+    //                 cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
+    // }
 
     // cv::imwrite("det_res.jpg", image);
     // fprintf(stderr, "save vis file\n");
@@ -498,7 +512,7 @@ void doInference(IExecutionContext& context, float* input, float* output, const 
     assert(engine.getBindingDataType(inputIndex) == nvinfer1::DataType::kFLOAT);
     const int outputIndex = engine.getBindingIndex(OUTPUT_BLOB_NAME);
     assert(engine.getBindingDataType(outputIndex) == nvinfer1::DataType::kFLOAT);
-    int mBatchSize = engine.getMaxBatchSize();
+    // int mBatchSize = engine.getMaxBatchSize();
 
     // Create GPU buffers on device
     CHECK(cudaMalloc(&buffers[inputIndex], 3 * input_shape.height * input_shape.width * sizeof(float)));
@@ -508,11 +522,15 @@ void doInference(IExecutionContext& context, float* input, float* output, const 
     cudaStream_t stream;
     CHECK(cudaStreamCreate(&stream));
 
+    g_logger.startRecording("copy+infer");
+
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
     CHECK(cudaMemcpyAsync(buffers[inputIndex], input, 3 * input_shape.height * input_shape.width * sizeof(float), cudaMemcpyHostToDevice, stream));
-    context.enqueue(1, buffers, stream, nullptr);
+    context.enqueueV2(buffers, stream, nullptr);
     CHECK(cudaMemcpyAsync(output, buffers[outputIndex], output_size * sizeof(float), cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
+
+    g_logger.stopRecording("copy+infer");
 
     // Release stream and buffers
     cudaStreamDestroy(stream);
@@ -568,7 +586,7 @@ int main(int argc, char** argv) {
 
     const std::string output_path {argv[4]};
 
-    const std::string alt_path {argv[5]};
+    // const std::string alt_path {argv[5]};
 
     std::vector<std::string> file_names = getFilenames(input_images_path);
     // if (read_files_in_dir(input_images_path, file_names) < 0) {
@@ -596,6 +614,8 @@ int main(int argc, char** argv) {
     std::string timing_csv = "";
     std::string last_time = "";
 
+    g_logger.setActive(true);
+
     for (uint i = 0; i < file_names.size(); ++i) {
         // // skip if ends in .txt
         // if (file_names[i].find(".txt") != std::string::npos)
@@ -603,7 +623,8 @@ int main(int argc, char** argv) {
 
         // auto start = std::chrono::system_clock::now();
         std::string input_image_path = input_images_path + "/" + file_names[i];
-        // std::string alt_txt_path = alt_path + "/" + file_names[i] + ".txt";
+        std::string image_name_no_ext = file_names[i].substr(0, file_names[i].find("."));
+        std::string out_txt_path = output_path + "/" + image_name_no_ext + ".txt";
         cv::Mat img = cv::imread(input_image_path);
         int img_w = img.cols;
         int img_h = img.rows;
@@ -630,9 +651,9 @@ int main(int argc, char** argv) {
         }
         // std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
 
-        // std::vector<Object> objects;
-        // decode_outputs(prob, objects, scale, img_w, img_h);
-        // cv::Mat out_img = draw_objects(img, objects, input_image_path, alt_txt_path);
+        std::vector<Object> objects;
+        decode_outputs(prob, objects, scale, img_w, img_h);
+        cv::Mat out_img = draw_objects(img, objects, out_txt_path);
     
         // cv::imwrite(output_path + "/" + file_names[i], out_img);
 
@@ -645,6 +666,9 @@ int main(int argc, char** argv) {
     csv_file.open(output_path + "/timing.csv");
     csv_file << timing_csv;
     csv_file.close();
+
+    g_logger.print();
+    g_logger.writeCSV(output_path + "/log.csv");
 
     // destroy the engine
     context->destroy();

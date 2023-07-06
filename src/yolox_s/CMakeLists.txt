@@ -21,8 +21,8 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR}/include)
 # include and link dirs of cuda and tensorrt, you need adapt them if yours are different
 # cuda
-# include_directories(/data/cuda/cuda-10.2/cuda/include)
-# link_directories(/data/cuda/cuda-10.2/cuda/lib64)
+include_directories(/usr/local/cuda-11.4/targets/aarch64-linux/include)
+link_directories(/usr/local/cuda-11.4/targets/aarch64-linux/lib)
 # # cudnn
 # include_directories(/data/cuda/cuda-10.2/cudnn/v8.0.4/include)
 # link_directories(/data/cuda/cuda-10.2/cudnn/v8.0.4/lib64)
@@ -44,7 +44,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Ofast -Wfatal-errors -
 find_package(OpenCV)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-cuda_add_executable(yolox yolox.cpp)
+cuda_add_executable(yolox
+	yolox.cpp
+	${COMMON_FILES}
+)
 # target_link_libraries(yolox nvinfer)
 # target_link_libraries(yolox cudart)
 
