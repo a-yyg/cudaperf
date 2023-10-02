@@ -36,7 +36,7 @@ using namespace nvonnxparser;
 
 void print_usage(char* argv[]) {
     printf("Program to generate TensorRT engine from ONNX model.\n");
-    printf("Usage: %s <onnx model> <calibration data> <batch size> <trt engine name>\n", argv[0]);
+    printf("Usage: %s <onnx model> <calibration data> <batch size> <trt engine name> <input size> <int8/fp32>\n", argv[0]);
 }
 
 class Logger : public ILogger {
@@ -67,18 +67,17 @@ using TRTUniquePtr = std::unique_ptr< T, TRTDestroy >;
 using TRTUniquePtr = std::unique_ptr< T >;
 #endif
 
-#define INPUT_SIZE 640
-#define INPUT_W 640
-#define INPUT_H 640
+// #define INPUT_SIZE 640
+#define INPUT_SIZE 416
 
-cv::Mat static_resize(cv::Mat& img) {
-    float r = std::min(INPUT_W / (img.cols*1.0), INPUT_H / (img.rows*1.0));
+cv::Mat static_resize(cv::Mat& img, int width = INPUT_SIZE, int height = INPUT_SIZE) {
+    float r = std::min(width / (img.cols*1.0), height / (img.rows*1.0));
     // r = std::min(r, 1.0f);
     int unpad_w = r * img.cols;
     int unpad_h = r * img.rows;
     cv::Mat re(unpad_h, unpad_w, CV_8UC3);
     cv::resize(img, re, re.size());
-    cv::Mat out(INPUT_H, INPUT_W, CV_8UC3, cv::Scalar(114, 114, 114));
+    cv::Mat out(height, width, CV_8UC3, cv::Scalar(114, 114, 114));
     re.copyTo(out(cv::Rect(0, 0, re.cols, re.rows)));
     return out;
 }
@@ -107,10 +106,11 @@ void blobFromImage(cv::Mat& img, float *blob){
 class DirectoryBatchStream : public IBatchStream
 {
 public:
-    DirectoryBatchStream(int batchSize, int maxBatches, std::string dataDir)
+    DirectoryBatchStream(int batchSize, int maxBatches, std::string dataDir, size_t imageSize = INPUT_SIZE)
         : mBatchSize(batchSize)
         , mMaxBatches(maxBatches)
         , mDataDir(dataDir)
+        , mImageSize(imageSize)
     {
         // Load all files into mFileNames
         readDataFiles(mDataDir);
@@ -139,7 +139,7 @@ public:
     float* getBatch() override
     {
         // Return pointer to mBatchSize images
-        return &mData[mCurrentBatch * mBatchSize * 3 * INPUT_SIZE * INPUT_SIZE];
+        return &mData[mCurrentBatch * mBatchSize * 3 * mImageSize * mImageSize];
     }
 
     float* getLabels() override
@@ -151,7 +151,7 @@ public:
 
     int getBatchSize() const override { return mBatchSize; }
 
-    nvinfer1::Dims getDims() const override { return nvinfer1::Dims3(3, INPUT_SIZE, INPUT_SIZE); }
+    nvinfer1::Dims getDims() const override { return nvinfer1::Dims3(3, mImageSize, mImageSize); }
 private:
 
     void readDataFiles(std::string dirName)
@@ -205,8 +205,8 @@ private:
         std::cout << "Read " << mFileNames.size() << " images in " << mNbBatches << " batches of size " << mBatchSize << std::endl;
 
         // Open all files
-        mData.resize(mFileNames.size() * 3 * INPUT_SIZE * INPUT_SIZE);
-        // std::vector<float> data(mBatchSize * 3 * INPUT_SIZE * INPUT_SIZE);
+        mData.resize(mFileNames.size() * 3 * mImageSize * mImageSize);
+        // std::vector<float> data(mBatchSize * 3 * mImageSize * mImageSize);
 
         for (int i = 0; i < mFileNames.size(); i++)
         {
@@ -219,8 +219,8 @@ private:
                 return;
             }
 
-            cv::Mat resized_image = static_resize(image);
-            blobFromImage(resized_image, mData.data() + i * 3 * INPUT_SIZE * INPUT_SIZE);
+            cv::Mat resized_image = static_resize(image, mImageSize, mImageSize);
+            blobFromImage(resized_image, mData.data() + i * 3 * mImageSize * mImageSize);
         }
     }
 
@@ -229,6 +229,7 @@ private:
     int mNbBatches{0};
     int mCurrentBatch{0};
     bool mShuffle{true};
+    size_t mImageSize{0};
     std::string mDataDir;
     std::vector<std::string> mFileNames;
     std::vector<float> mData;
@@ -274,7 +275,7 @@ private:
 };
 
 int main(int argc, char* argv[]) {
-    if (argc < 5) {
+    if (argc < 6) {
         print_usage(argv);
         return 1;
     }
@@ -283,6 +284,13 @@ int main(int argc, char* argv[]) {
     std::string calibration_data = argv[2];
     int batch_size = std::atoi(argv[3]);
     std::string engine_name = argv[4];
+    int input_size = std::atoi(argv[5]);
+    std::string mode = argv[6];
+
+    if (mode != "int8" && mode != "fp32") {
+        print_usage(argv);
+        return 1;
+    }
 
     TRTUniquePtr<IBuilder> builder {createInferBuilder(gLogger)};
     uint32_t flag = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
@@ -296,145 +304,26 @@ int main(int argc, char* argv[]) {
         printf("%s\n", parser->getError(i)->desc());
     }
 
-    if (!builder->platformHasFastInt8()) {
-        printf("Platform doesn't support int8 mode\n");
-        return 1;
-    }
-
     config->setMaxWorkspaceSize(1 << 30);
     config->setFlag(BuilderFlag::kGPU_FALLBACK);
-    config->setFlag(BuilderFlag::kINT8); // force int8 mode
-    // config->setInt8Calibrator(nullptr); // use default calibrator
 
-    DirectoryBatchStream calibrationStream(batch_size, 0, calibration_data);
+    if (mode == "int8") {
+        if (!builder->platformHasFastInt8()) {
+            printf("Platform doesn't support int8 mode\n");
+            return 1;
+        }
 
-    // TRTUniquePtr<Int8EntropyCalibrator2<DirectoryBatchStream>> calibrator {
-    //     new Int8EntropyCalibrator2<DirectoryBatchStream>(calibrationStream, 0, "calibration.table", "images")};
+        config->setFlag(BuilderFlag::kINT8); // force int8 mode
 
-    TRTUniquePtr<Int8Calibrator<DirectoryBatchStream, IInt8MinMaxCalibrator>> calibrator {
-        new Int8Calibrator<DirectoryBatchStream, IInt8MinMaxCalibrator>(calibrationStream, 0, "calibration.table", "images")};
+        DirectoryBatchStream calibrationStream(batch_size, 0, calibration_data, input_size);
 
-    config->setInt8Calibrator(calibrator.get());
+        TRTUniquePtr<Int8Calibrator<DirectoryBatchStream, IInt8MinMaxCalibrator>> calibrator {
+            new Int8Calibrator<DirectoryBatchStream, IInt8MinMaxCalibrator>(calibrationStream, 0, "calibration.table", "images")};
 
-    // IOptimizationProfile* profile = builder->createOptimizationProfile();
-    // profile->setDimensions("data", OptProfileSelector::kMIN, Dims4(batch_size, 3, 224, 224));
-    // profile->setDimensions("data", OptProfileSelector::kOPT, Dims4(batch_size, 3, 224, 224));
-    // profile->setDimensions("data", OptProfileSelector::kMAX, Dims4(batch_size, 3, 224, 224));
-    // profile->setDimensions("resnetv24_dense0_fwd", OptProfileSelector::kMIN, Dims2(batch_size, 1000));
-    // profile->setDimensions("resnetv24_dense0_fwd", OptProfileSelector::kOPT, Dims2(batch_size, 1000));
-    // profile->setDimensions("resnetv24_dense0_fwd", OptProfileSelector::kMAX, Dims2(batch_size, 1000));
-
-    // config->addOptimizationProfile(profile);
+        config->setInt8Calibrator(calibrator.get());
+    }
 
     builder->setMaxBatchSize(batch_size);
-
-#if 0
-    // setup network layer precision
-    for (int i = 0; i < network->getNbLayers(); ++i) {
-        auto layer = network->getLayer(i);
-
-        switch(layer->getType()) {
-        case LayerType::kCONSTANT:
-        case LayerType::kCONCATENATION:
-        case LayerType::kSHAPE:
-            break;
-        default:
-            layer->setPrecision(DataType::kINT8);
-            break;
-        }
-
-        for (int j = 0; j < layer->getNbOutputs(); ++j) {
-            if (layer->getOutput(j)->isExecutionTensor()) {
-                layer->setOutputType(j, DataType::kINT8);
-            }
-        }
-    }
-
-    // set custom dynamic range
-    std::ifstream input("resnet50_per_tensor_dynamic_range.txt");
-
-    std::map<std::string, float> ranges;
-
-    {
-        std::string line;
-        char delim = ':';
-        while (std::getline(input, line)) {
-            std::istringstream iss(line);
-            std::string token;
-            std::getline(iss, token, delim);
-            std::string name = token;
-            std::getline(iss, token, delim);
-            float max = std::stof(token);
-            ranges[name] = max;
-        }
-    }
-
-    input.close();
-
-    for (int i = 0; i < network->getNbInputs(); ++i) {
-        std::string name = network->getInput(i)->getName();
-        if (ranges.find(name) != ranges.end()) {
-            float max = ranges[name];
-            float min = -max;
-            if (!network->getInput(i)->setDynamicRange(min, max)) {
-                printf("set dynamic range failed\n");
-                return 1;
-            }
-        } else {
-            printf("can't find dynamic range for %s\n, setting dummy values", name.c_str());
-            if (!network->getInput(i)->setDynamicRange(-1, 1)) {
-                printf("set dynamic range failed\n");
-                return 1;
-            }
-            // return 1;
-        }
-    }
-
-    for (int i = 0; i < network->getNbLayers(); ++i) {
-        auto lyr = network->getLayer(i);
-        for (int j = 0, e = lyr->getNbOutputs(); j < e; ++j) {
-            std::string name = lyr->getOutput(j)->getName();
-            if (ranges.find(name) != ranges.end()) {
-                float max = ranges[name];
-                float min = -max;
-                if (!lyr->getOutput(j)->setDynamicRange(min, max)) {
-                    printf("set dynamic range failed\n");
-                    return 1;
-                }
-            } else if (lyr->getType() == LayerType::kCONSTANT) {
-                IConstantLayer* const_lyr = static_cast<IConstantLayer*>(lyr);
-                auto wts = const_lyr->getWeights();
-                double max = std::numeric_limits<double>::min();
-                printf("computing dynamic range for %s\n", name.c_str());
-                for (int64_t wb = 0, we = wts.count; wb < we; ++wb) {
-                    double val{};
-                    switch (wts.type) {
-                    case DataType::kFLOAT: val = static_cast<const float*>(wts.values)[wb]; break;
-                    case DataType::kBOOL: val = static_cast<const bool*>(wts.values)[wb]; break;
-                    case DataType::kINT8: val = static_cast<const int8_t*>(wts.values)[wb]; break;
-                    // case DataType::kHALF: val = static_cast<const half*>(wts.values)[wb]; break;
-                    case DataType::kINT32: val = static_cast<const int32_t*>(wts.values)[wb]; break;
-                    // case DataType::kUINT8: val = static_cast<uint8_t const*>(wts.values)[wb]; break;
-                    default: printf("unsupported weight type\n"); return 1;
-                    }
-                    max = std::max(max, std::abs(val));
-                }
-
-                if (!lyr->getOutput(j)->setDynamicRange(-max, max)) {
-                    printf("set dynamic range failed\n");
-                    return 1;
-                }
-            } else {
-                printf("can't find dynamic range for %s\n, setting dummy values", name.c_str());
-                if (!lyr->getOutput(j)->setDynamicRange(-1, 1)) {
-                    printf("set dynamic range failed\n");
-                    return 1;
-                }
-                // return 1;
-            }
-        }
-    }
-#endif
 
     TRTUniquePtr<IHostMemory> plan {builder->buildSerializedNetwork(*network, *config)};
     if (!plan) {
