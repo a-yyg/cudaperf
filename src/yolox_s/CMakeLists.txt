@@ -44,30 +44,41 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Ofast -Wfatal-errors -
 find_package(OpenCV)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-cuda_add_executable(yolox
-	yolox.cpp
-	${COMMON_FILES}
-)
-# target_link_libraries(yolox nvinfer)
-# target_link_libraries(yolox cudart)
+set(NMS_OPTIONS
+	"0.45"
+	"0.65")
 
-target_link_libraries(yolox
-	${CUDA_LIBRARIES}
-	${CUDNN_LIBRARIES}
-	${PLUGIN_LIBRARIES}
-	${OpenCV_LIBRARIES}
-	nvinfer
-	cudart
-	)
+set(CONF_THRESH
+	"0.3"
+	"0.001")
 
-target_include_directories(yolox
-	PUBLIC
-	${CUDA_INCLUDE_DIRS}
-	${CUDNN_INCLUDE_DIRS}
-	${CMAKE_CURRENT_SOURCE_DIR}/..
-	)
-
-# target_link_libraries(yolox ${OpenCV_LIBS})
-
-add_definitions(-O2 -pthread)
-
+foreach(NMS_VAL ${NMS_OPTIONS})
+	foreach(CONF_VAL ${CONF_THRESH})
+		# Get digits after decimal point
+		string(REGEX MATCH "[0-9]+$" NMS_VAL_DIGITS ${NMS_VAL})
+		string(REGEX MATCH "[0-9]+$" CONF_VAL_DIGITS ${CONF_VAL})
+		# Set output name
+		set(OUTPUT_NAME yolox_${NMS_VAL_DIGITS}_${CONF_VAL_DIGITS})
+		add_executable(${OUTPUT_NAME}
+			yolox.cpp
+			${COMMON_FILES}
+		)
+		target_compile_definitions(${OUTPUT_NAME} PUBLIC BBOX_CONF_THRESH=${CONF_VAL})
+		target_compile_definitions(${OUTPUT_NAME} PUBLIC NMS_THRESH=${NMS_VAL})
+		target_link_libraries(${OUTPUT_NAME}
+			${CUDA_LIBRARIES}
+			${CUDNN_LIBRARIES}
+			${PLUGIN_LIBRARIES}
+			${OpenCV_LIBRARIES}
+			nvinfer
+			cudart
+			)
+		target_include_directories(${OUTPUT_NAME}
+			PUBLIC
+			${CUDA_INCLUDE_DIRS}
+			${CUDNN_INCLUDE_DIRS}
+			${CMAKE_CURRENT_SOURCE_DIR}/..
+			)
+		add_definitions(-O2 -pthread)
+	endforeach()
+endforeach()

@@ -24,6 +24,12 @@ public:
   TimeLogger() {}
   ~TimeLogger() {}
 
+  // Record time for start of program
+  void startProgram();
+
+  // Record time for end of program
+  void endProgram();
+
   // Start recording time for a given name
   void startRecording(std::string name);
 
@@ -72,6 +78,9 @@ private:
   std::unordered_map<std::string, std::vector<std::pair<std::string, long>>> times_;
 
   std::unordered_map<std::string, TimeVar> start_times_;
+
+  std::string prog_start_time_;
+  std::string prog_end_time_;
 
   bool active_ = false;
 

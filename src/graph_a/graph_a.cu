@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cstdio>
+#include <sstream>
 
 #include "common/cuda_common.hpp"
 #include "common/timelogger.hpp"
@@ -96,6 +97,10 @@ public:
       dim3 dimBlock(32, 32);
       dim3 dimGrid((m_N + 31) / 32, (m_N + 31) / 32);
 
+// #if (BENCHMARK == 1)
+//       g_logger.startRecording("kernel");
+// #endif
+
 #if (BENCHMARK == 1)
       g_logger.startRecording("mul_kernel");
 #endif
@@ -123,7 +128,12 @@ public:
         MatAdd<<<dimGrid, dimBlock>>>(m_C[i].get(), m_B[i + 1].get(),
                                       m_C[i - 1].get(), m_N);
       }
+
       cudaDeviceSynchronize(); // Make sure all streams are done
+
+// #if (BENCHMARK == 1)
+//       g_logger.stopRecording();
+// #endif
 
 #if (BENCHMARK == 1)
       g_logger.stopRecording();
@@ -137,9 +147,9 @@ public:
 #if (BENCHMARK == 1)
       g_logger.stopRecording();
       // printf("Copy output to CPU: %ld us\n", duration(end - start));
+#endif
       delete[] streams;
     }
-#endif
   }
 
   void print() {
@@ -169,10 +179,16 @@ int main(int argc, char *argv[]) {
   int N = argc > 1 ? atoi(argv[1]) : 8;
   int numScalars = argc > 2 ? atoi(argv[2]) : 2;
   int iterations = argc > 3 ? atoi(argv[3]) : 1;
-  std::string filename = argc > 4 ? argv[4] : "graphA.csv";
+
+  std::stringstream fstr;
+  fstr << "time_g1_" << numScalars << "_" << N << ".csv";
+
+  std::string filename = argc > 4 ? argv[4] : fstr.str();
 
 #if (BENCHMARK == 1)
   YuriPerf::g_logger.setActive(true);
+
+  YuriPerf::g_logger.startProgram();
 #endif
 
   // Create the graph
@@ -181,6 +197,8 @@ int main(int argc, char *argv[]) {
   // graph.print();
 
 #if (BENCHMARK == 1)
+  YuriPerf::g_logger.endProgram();
+
   YuriPerf::g_logger.print();
   YuriPerf::g_logger.writeCSV(filename);
 #endif

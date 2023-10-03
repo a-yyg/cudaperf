@@ -9,6 +9,28 @@
 
 namespace YuriPerf {
 
+void TimeLogger::startProgram() {
+  if (!active_)
+    return;
+
+  time_t now = time(0);
+  tm *ltm = localtime(&now);
+  prog_start_time_ = std::to_string(ltm->tm_hour) + ":" +
+                     std::to_string(ltm->tm_min) + ":" +
+                     std::to_string(ltm->tm_sec);
+}
+
+void TimeLogger::endProgram() {
+  if (!active_)
+    return;
+
+  time_t now = time(0);
+  tm *ltm = localtime(&now);
+  prog_end_time_ = std::to_string(ltm->tm_hour) + ":" +
+                   std::to_string(ltm->tm_min) + ":" +
+                   std::to_string(ltm->tm_sec);
+}
+
 void TimeLogger::startRecording(std::string name) {
   if (!active_)
     return;
@@ -206,6 +228,15 @@ void TimeLogger::writeCSV(std::string filename) {
 
   file << std::endl;
 
+  // Write one line to indicate start time
+  file << prog_start_time_ << ",";
+  file << 0 << ",";
+  for (auto &time : times_) {
+    file << 0 << ",";
+  }
+  file << 0;
+  file << std::endl;
+
   // Write each time
   for (size_t i = 0; i < times_.begin()->second.size(); i++) {
     long total = 0;
@@ -221,6 +252,16 @@ void TimeLogger::writeCSV(std::string filename) {
 
     file << std::endl;
   }
+
+  // Write one line to indicate end time
+  file << prog_end_time_ << ",";
+  file << times_.begin()->second.size() << ",";
+  for (auto &time : times_) {
+    file << 0 << ",";
+  }
+  file << 0;
+  file << std::endl;
+
   file.close();
 }
 

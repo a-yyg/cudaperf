@@ -14,6 +14,8 @@
 
 YuriPerf::TimeLogger g_logger;
 
+#define POST_PROCESS 0
+
 #define CHECK(status) \
     do\
     {\
@@ -26,29 +28,32 @@ YuriPerf::TimeLogger g_logger;
     } while (0)
 
 #define DEVICE 0  // GPU id
-#define NMS_THRESH 0.45
-#define BBOX_CONF_THRESH 0.3
+// #define NMS_THRESH 0.45
+// #define BBOX_CONF_THRESH 0.3
+
+#if !defined(NMS_THRESH) || !defined(BBOX_CONF_THRESH)
+#error "NMS_THRESH and BBOX_CONF_THRESH must be defined"
+#endif
 
 #define SAVE_RESULTS 0
 
 using namespace nvinfer1;
 
 // stuff we know about the network and the input/output blobs
-static const int INPUT_W = 640;
-static const int INPUT_H = 640;
+static const int INPUT_SIZE = 640;
 static const int NUM_CLASSES = 80;
 const char* INPUT_BLOB_NAME = "images";
 const char* OUTPUT_BLOB_NAME = "output";
 static Logger gLogger;
 
 cv::Mat static_resize(cv::Mat& img) {
-    float r = std::min(INPUT_W / (img.cols*1.0), INPUT_H / (img.rows*1.0));
+    float r = std::min(INPUT_SIZE / (img.cols*1.0), INPUT_SIZE / (img.rows*1.0));
     // r = std::min(r, 1.0f);
     int unpad_w = r * img.cols;
     int unpad_h = r * img.rows;
     cv::Mat re(unpad_h, unpad_w, CV_8UC3);
     cv::resize(img, re, re.size());
-    cv::Mat out(INPUT_H, INPUT_W, CV_8UC3, cv::Scalar(114, 114, 114));
+    cv::Mat out(INPUT_SIZE, INPUT_SIZE, CV_8UC3, cv::Scalar(114, 114, 114));
     re.copyTo(out(cv::Rect(0, 0, re.cols, re.rows)));
     return out;
 }
@@ -71,8 +76,8 @@ static void generate_grids_and_stride(std::vector<int>& strides, std::vector<Gri
 {
     for (auto stride : strides)
     {
-        int num_grid_y = INPUT_H / stride;
-        int num_grid_x = INPUT_W / stride;
+        int num_grid_y = INPUT_SIZE / stride;
+        int num_grid_x = INPUT_SIZE / stride;
         for (int g1 = 0; g1 < num_grid_y; g1++)
         {
             for (int g0 = 0; g0 < num_grid_x; g0++)
@@ -411,6 +416,7 @@ static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objec
 
         cv::rectangle(image, obj.rect, color * 255, 2);
 
+#if 0
         char text[256];
         sprintf(text, "%s %.1f%% (TRT)", class_names[obj.label], obj.prob * 100);
 
@@ -432,11 +438,17 @@ static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objec
 
         cv::putText(image, text, cv::Point(x, y + label_size.height),
                     cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
+#endif
 
 
 #if SAVE_RESULTS == 1
         // format is: label confidence left top right bottom
-        f_stream << class_names[obj.label] << " " << obj.prob << " " << obj.rect.x << " " << obj.rect.y << " " << obj.rect.width << " " << obj.rect.height << "\n";
+        f_stream << class_names[obj.label] << " "
+		 << obj.prob << " "
+		 << obj.rect.x << " "
+		 << obj.rect.y << " "
+		 << obj.rect.x + obj.rect.width << " "
+		 << obj.rect.y + obj.rect.height << "\n";
 #endif
     }
 
@@ -498,6 +510,10 @@ static cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objec
 
 
 void doInference(IExecutionContext& context, float* input, float* output, const int output_size, cv::Size input_shape) {
+    cudaEvent_t start, stop;
+    float time;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
     const ICudaEngine& engine = context.getEngine();
 
     // Pointers to input and output device buffers to pass to engine.
@@ -524,13 +540,21 @@ void doInference(IExecutionContext& context, float* input, float* output, const 
 
     g_logger.startRecording("copy+infer");
 
+    cudaEventRecord(start, 0);
+
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
     CHECK(cudaMemcpyAsync(buffers[inputIndex], input, 3 * input_shape.height * input_shape.width * sizeof(float), cudaMemcpyHostToDevice, stream));
     context.enqueueV2(buffers, stream, nullptr);
     CHECK(cudaMemcpyAsync(output, buffers[outputIndex], output_size * sizeof(float), cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
 
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+
     g_logger.stopRecording("copy+infer");
+
+    cudaEventElapsedTime(&time, start, stop);
+    // std::cout << "Time taken for inference: " << time << "ms" << std::endl;
 
     // Release stream and buffers
     cudaStreamDestroy(stream);
@@ -611,10 +635,11 @@ int main(int argc, char** argv) {
     printf("output_size: %d\n", output_size);
     printf("file_names.size(): %d\n", file_names.size());
     
-    std::string timing_csv = "";
+    // std::string timing_csv = "";
     std::string last_time = "";
 
     g_logger.setActive(true);
+    g_logger.startProgram();
 
     for (uint i = 0; i < file_names.size(); ++i) {
         // // skip if ends in .txt
@@ -633,40 +658,45 @@ int main(int argc, char** argv) {
 
         float* blob;
         blob = blobFromImage(pr_img);
-        float scale = std::min(INPUT_W / (img.cols*1.0), INPUT_H / (img.rows*1.0));
+        float scale = std::min(INPUT_SIZE / (img.cols*1.0), INPUT_SIZE / (img.rows*1.0));
 
         // run inference
-        auto start = std::chrono::system_clock::now();
+        // auto start = std::chrono::system_clock::now();
         doInference(*context, blob, prob, output_size, pr_img.size());
-        auto end = std::chrono::system_clock::now();
+        // auto end = std::chrono::system_clock::now();
         // get current time in hh:mm:ss format
-        std::time_t end_time = std::chrono::system_clock::to_time_t(end);
+        // std::time_t end_time = std::chrono::system_clock::to_time_t(end);
 
-        std::string new_time = std::ctime(&end_time);
+#if POST_PROCESS == 1
+        // std::string new_time = std::ctime(&end_time);
+#if 0
         if (last_time != new_time) {
             last_time = new_time;
             // remove newline
             new_time.erase(std::remove(new_time.begin(), new_time.end(), '\n'), new_time.end());
-            timing_csv += new_time + "," + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) + "\n";
+            // timing_csv += new_time + "," + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) + "\n";
         }
         // std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
+#endif
 
         std::vector<Object> objects;
         decode_outputs(prob, objects, scale, img_w, img_h);
         cv::Mat out_img = draw_objects(img, objects, out_txt_path);
     
         // cv::imwrite(output_path + "/" + file_names[i], out_img);
+#endif
 
         // delete the pointer to the float
         delete blob;
         // auto end = std::chrono::system_clock::now();
     }
 
-    std::ofstream csv_file;
-    csv_file.open(output_path + "/timing.csv");
-    csv_file << timing_csv;
-    csv_file.close();
+    // std::ofstream csv_file;
+    // csv_file.open(output_path + "/timing.csv");
+    // csv_file << timing_csv;
+    // csv_file.close();
 
+    g_logger.endProgram();
     g_logger.print();
     g_logger.writeCSV(output_path + "/log.csv");
 
